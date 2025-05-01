@@ -352,8 +352,8 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         llms={
-        "default": GeneralLlm(model="openrouter/perplexity/sonar-reasoning", temperature=0.1),
-        "summarizer": GeneralLlm(model="openrouter/perplexity/sonar-pro", temperature=0.0),
+        "default": GeneralLlm(model="openrouter/perplexity/sonar", temperature=0.1),
+        "summarizer": GeneralLlm(model="openrouter/perplexity/sonar", temperature=0.0),
     },
 )
 
