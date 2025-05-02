@@ -62,30 +62,12 @@ class TemplateForecaster(ForecastBot):
     _max_concurrent_questions = 2  # Set this to whatever works for your search-provider/ai-model rate limits
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
-    async def run_research(self, question):
-    # instantiate your SDK client
-        ask = AsyncAskNewsSDK(
-            client_id=os.getenv("ASKNEWS_CLIENT_ID"),
-            client_secret=os.getenv("ASKNEWS_SECRET"),
-            scopes=["chat", "news", "stories", "analytics"],
-        )
-        # kick off a deep-news session
-        deep = await ask.chat.get_deep_news(
-            messages=[{"role":"user","content": question.question_text}],
-            sources=["asknews"],
-            model="deepseek-basic",
-            search_depth=2,
-            max_depth=2,
-            inline_citations="numbered",
-            stream=False,
-            return_sources=False,
-        )
-        if hasattr(deep, "as_string"):
-            return deep.as_string
-        elif hasattr(deep, "choices"):
-            return deep.choices[0].message.content
-        else:
-            return str(deep)
+    async def run_research(self, question: MetaculusQuestion) -> str:
+        async with self._concurrency_limiter:
+            research = ""
+            if os.getenv("ASKNEWS_CLIENT_ID") and os.getenv("ASKNEWS_SECRET"):
+                return await AskNewsSearcher().get_formatted_news_async(question.question_text)
+            return research
 
     #async def _call_perplexity(
     #    self, question: str, use_open_router: bool = False
@@ -385,8 +367,8 @@ if __name__ == "__main__":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
             "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+            #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+            #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
         ]
         template_bot.skip_previously_forecasted_questions = False
         questions = [
