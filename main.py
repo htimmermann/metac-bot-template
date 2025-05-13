@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 from typing import Literal
 from asknews_sdk import AsyncAskNewsSDK
+from asknews_sdk import AskNewsSDK
 
 from forecasting_tools import (
     AskNewsSearcher,
@@ -68,13 +69,13 @@ class TemplateForecaster(ForecastBot):
             client_id = os.getenv("ASKNEWS_CLIENT_ID")
             client_secret = os.getenv("ASKNEWS_SECRET")
             if client_id and client_secret:
-                sdk = AsyncAskNewsSDK(
+                sdk = AskNewsSDK(
                     client_id,
                     client_secret,
                     scopes=["chat", "news", "stories"]
                 )
 
-                deep_response = await sdk.chat.get_deep_news(
+                deep_response = sdk.chat.get_deep_news(
                     messages=[{"role": "user", "content": question.question_text}],
                     sources=["asknews"],
                     model="deepseek-basic",
