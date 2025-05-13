@@ -75,7 +75,7 @@ class TemplateForecaster(ForecastBot):
                     scopes=["chat", "news", "stories"]
                 )
 
-                deep_response = await sdk.chat.deepnews(
+                deep_response = await sdk.deepnews.run(
                     messages=[{"role": "user", "content": question.question_text}],
                     sources=["asknews"],
                     model="deepseek-basic",
