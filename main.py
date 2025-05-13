@@ -65,8 +65,25 @@ class TemplateForecaster(ForecastBot):
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
             research = ""
-            if os.getenv("ASKNEWS_CLIENT_ID") and os.getenv("ASKNEWS_SECRET"):
-                return await AskNewsSearcher().get_formatted_news_async(question.question_text)
+            client_id = os.getenv("ASKNEWS_CLIENT_ID")
+            client_secret = os.getenv("ASKNEWS_SECRET")
+            if client_id and client_secret:
+                ask = AsyncAskNewsSDK(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=["chat", "news", "stories", "analytics"],
+                )
+                deep_response = await ask.chat.get_deep_news(
+                    messages=[{"role": "user", "content": question.question_text}],
+                    sources=["asknews"],
+                    model="deepseek-basic",
+                    search_depth=2,
+                    max_depth=2,
+                    stream=False,
+                    return_sources=False,
+                    inline_citations="numbered",
+                )
+                return str(deep_response)
             return research
 
     async def _run_forecast_on_binary(
