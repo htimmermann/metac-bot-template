@@ -72,8 +72,8 @@ class TemplateForecaster(ForecastBot):
                     query=question.question_text,
                     sources=["asknews"],               # or whatever sources you prefer
                     model="deepseek-basic",                  # or "claude-3-7-sonnet-latest", "o3-mini", etc.
-                    search_depth=AskNewsSearcher._default_search_depth,
-                    max_depth=AskNewsSearcher._default_max_depth,
+                    search_depth=2,
+                    max_depth=2,
                 )
                 return deep_text
 
