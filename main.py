@@ -65,20 +65,12 @@ class TemplateForecaster(ForecastBot):
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
-            # if creds are set, run DeepNews instead of simple news
+            research = ""
             if os.getenv("ASKNEWS_CLIENT_ID") and os.getenv("ASKNEWS_SECRET"):
-                searcher = AskNewsSearcher()
-                deep_text = await searcher.get_formatted_deep_research(
-                    query=question.question_text,
-                    sources=["asknews"],               # or whatever sources you prefer
-                    model="deepseek-basic",                  # or "claude-3-7-sonnet-latest", "o3-mini", etc.
-                    search_depth=2,
-                    max_depth=2,
-                )
-                return deep_text
-
-            # fallback empty string if no creds
-            return ""
+                return await AskNewsSearcher().get_formatted_news_async(question.question_text)
+            return research
+        
+        
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
