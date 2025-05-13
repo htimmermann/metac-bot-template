@@ -69,13 +69,13 @@ class TemplateForecaster(ForecastBot):
             client_id = os.getenv("ASKNEWS_CLIENT_ID")
             client_secret = os.getenv("ASKNEWS_SECRET")
             if client_id and client_secret:
-                sdk = AsyncAskNewsSDK(
-                    client_id,
-                    client_secret,
-                    scopes=["chat", "news", "stories"]
+                ask = AsyncAskNewsSDK(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=["chat", "news", "stories", "analytics"],
                 )
 
-                deep_response = await sdk.deepnews.run(
+                deep_response = ask.news.search_news(
                     messages=[{"role": "user", "content": question.question_text}],
                     sources=["asknews"],
                     model="deepseek-basic",
