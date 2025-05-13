@@ -69,7 +69,7 @@ class TemplateForecaster(ForecastBot):
             client_id = os.getenv("ASKNEWS_CLIENT_ID")
             client_secret = os.getenv("ASKNEWS_SECRET")
             if client_id and client_secret:
-                sdk = AskNewsSDK(
+                sdk = AsyncAskNewsSDK(
                     client_id,
                     client_secret,
                     scopes=["chat", "news", "stories"]
