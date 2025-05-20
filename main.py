@@ -105,14 +105,18 @@ class TemplateForecaster(ForecastBot):
             """
         )
         reasoning = await self.get_llm("default", "llm").invoke(prompt)
-        prediction: float = PredictionExtractor.extract_last_percentage_value(
+        raw_pred = PredictionExtractor.extract_last_percentage_value(
             reasoning, max_prediction=1, min_prediction=0
         )
+        # …and force it to a float
+        prediction: float = float(raw_pred)
+
         logger.info(
             f"Forecasted URL {question.page_url} as {prediction} with reasoning:\n{reasoning}"
         )
         return ReasonedPrediction(
-            prediction_value=prediction, reasoning=reasoning
+            prediction_value=prediction,
+            reasoning=reasoning
         )
 
     async def _run_forecast_on_multiple_choice(
@@ -316,7 +320,7 @@ if __name__ == "__main__":
     elif run_mode == "test_questions":
         # Example questions are a good way to test the bot's performance on a single question
         EXAMPLE_QUESTIONS = [
-            "https://www.metaculus.com/questions/37328/india-pakistan-conflict-with-100-deaths-in-mayjune-2025/",  # Human Extinction - Binary
+            "https://www.metaculus.com/questions/37809/",  # Human Extinction - Binary
             #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
             #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
         ]
