@@ -180,7 +180,6 @@ class TemplateForecaster(ForecastBot):
 
             1) Your question is:
             {question.question_text}
-            The options are: {question.options}
 
             2)Key Facts, Assumptions & Research Summary:
             {question.background_info}
