@@ -76,24 +76,22 @@ class TemplateForecaster(ForecastBot):
     ) -> ReasonedPrediction[float]:
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+            You are an expert professional forecaster interviewing for a role on our team.  
+            Use rigorous, step-by-step reasoning, and structure your answer exactly as follows:
 
-            Your interview question is:
+            1) Your question is:
             {question.question_text}
+            The options are: {question.options}
 
-            Question background:
+            2)Key Facts, Assumptions & Research Summary:
             {question.background_info}
-
-
-            This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied:
             {question.resolution_criteria}
-
             {question.fine_print}
-
-
             Your research assistant says:
-            {research}
+            {research}. 
 
+            Treat your research assistant’s summary as a data mine: identify the most impactful dated events for your forecast, 
+            weight more recent events more heavily, evaluate each for its directional influence and confidence, and focus only on those that truly move the needle.
             Today is {datetime.now().strftime("%Y-%m-%d")}.
 
             Before answering you write:
@@ -123,24 +121,22 @@ class TemplateForecaster(ForecastBot):
     ) -> ReasonedPrediction[PredictedOptionList]:
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+            You are an expert professional forecaster interviewing for a role on our team.  
+            Use rigorous, step-by-step reasoning, and structure your answer exactly as follows:
 
-            Your interview question is:
+            1) Your question is:
             {question.question_text}
-
             The options are: {question.options}
 
-
-            Background:
+            2)Key Facts, Assumptions & Research Summary:
             {question.background_info}
-
             {question.resolution_criteria}
-
             {question.fine_print}
-
-
             Your research assistant says:
-            {research}
+            {research}. 
+
+            Treat your research assistant’s summary as a data mine: identify the most impactful dated events for your forecast, 
+            weight more recent events more heavily, evaluate each for its directional influence and confidence, and focus only on those that truly move the needle.
 
             Today is {datetime.now().strftime("%Y-%m-%d")}.
 
@@ -179,22 +175,24 @@ class TemplateForecaster(ForecastBot):
         )
         prompt = clean_indents(
             f"""
-            You are a professional forecaster interviewing for a job.
+           You are an expert professional forecaster interviewing for a role on our team.  
+            Use rigorous, step-by-step reasoning, and structure your answer exactly as follows:
 
-            Your interview question is:
+            1) Your question is:
             {question.question_text}
+            The options are: {question.options}
 
-            Background:
+            2)Key Facts, Assumptions & Research Summary:
             {question.background_info}
-
             {question.resolution_criteria}
-
             {question.fine_print}
+            Your research assistant says:
+            {research}. 
+
+            Treat your research assistant’s summary as a data mine: identify the most impactful dated events for your forecast, 
+            weight more recent events more heavily, evaluate each for its directional influence and confidence, and focus only on those that truly move the needle.
 
             Units for answer: {question.unit_of_measure if question.unit_of_measure else "Not stated (please infer this)"}
-
-            Your research assistant says:
-            {research}
 
             Today is {datetime.now().strftime("%Y-%m-%d")}.
 
@@ -216,7 +214,7 @@ class TemplateForecaster(ForecastBot):
 
             You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
 
-            The last thing you write is your final answer as:
+            The last thing you write is your final answer as (all as floats):
             "
             Percentile 10: XX
             Percentile 20: XX
@@ -297,8 +295,8 @@ if __name__ == "__main__":
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
         llms={
-        "default": GeneralLlm(model="openrouter/perplexity/sonar", temperature=0.1),
-        "summarizer": GeneralLlm(model="openrouter/perplexity/sonar", temperature=0.0),
+        "default": GeneralLlm(model="openrouter/perplexity/sonar-reasoning-pro", temperature=0.1),
+        "summarizer": GeneralLlm(model="openrouter/perplexity/sonar-reasoning-pro", temperature=0.0),
     },
 )
 
