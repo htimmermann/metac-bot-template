@@ -17,3 +17,12 @@ Below are some ideas for making a novel bot.
 - Search provider benchmark: Run bots using different combinations of search providers (e.g. Google, Bing, Exa.ai, Tavily, AskNews, Perplexity, etc) and search filters (e.g. only recent data, sites with a certain search rank, etc) and see if any specific one is better than others, or if using multiple of them makes a difference.
 - Timeline researcher: Make a tool that can take a niche topic and make a timeline for all major and minor events relevant to that topic.
 - Research Tools: Utilize the ComputerUse and DataAnalyzer tool from forecasting-tools for advanced analysis and to find/analyze datasets.
+
+## Multi‑Forecaster Ensemble (optional)
+- Enable an ensemble of expert personas and weighted aggregation for binary questions by setting env var `FORECAST_ENSEMBLE_SIZE` (e.g., `FORECAST_ENSEMBLE_SIZE=20`).
+- The pipeline:
+  - Generates N expert forecaster personas via the default LLM (override with `llms["persona_generator"]`).
+  - Each persona produces a probability using the research from the selected researcher.
+  - A ranker LLM scores personas by relevance (override with `llms["ranker"]`).
+  - Drops the bottom third by rank, buckets remaining into 5 weights, normalizes, and returns a weighted probability.
+- Works with existing `researcher` settings (AskNews or LLM) without hardcoded API keys. Configure keys via `.env` as usual.

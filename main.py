@@ -3,11 +3,16 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Literal
+import os
+import re
+import json
+from asknews_sdk import AskNewsSDK
 
 from forecasting_tools import (
     AskNewsSearcher,
     BinaryQuestion,
     ForecastBot,
+    MonetaryCostManager,
     GeneralLlm,
     MetaculusApi,
     MetaculusQuestion,
@@ -28,19 +33,6 @@ logger = logging.getLogger(__name__)
 
 class FallTemplateBot2025(ForecastBot):
     """
-    This is a copy of the template bot for Fall 2025 Metaculus AI Tournament.
-    This bot is what is used by Metaculus in our benchmark, but is also provided as a template for new bot makers.
-    This template is given as-is, and though we have covered most test cases
-    in forecasting-tools it may be worth double checking key components locally.
-
-    Main changes since Q2:
-    - An LLM now parses the final forecast output (rather than programmatic parsing)
-    - Added resolution criteria and fine print explicitly to the research prompt
-    - Previously in the prompt, nothing about upper/lower bound was shown when the bounds were open. Now a suggestion is made when this is the case.
-    - Support for nominal bounds was added (i.e. when there are discrete questions and normal upper/lower bounds are not as intuitive)
-
-    The main entry point of this bot is `forecast_on_tournament` in the parent class.
-    See the script at the bottom of the file for more details on how to run the bot.
     Ignoring the finer details, the general flow is:
     - Load questions from Metaculus
     - For each question
@@ -49,60 +41,10 @@ class FallTemplateBot2025(ForecastBot):
         - Aggregate the predictions
         - Submit prediction (if publish_reports_to_metaculus is True)
     - Return a list of ForecastReport objects
-
-    Only the research and forecast functions need to be implemented in ForecastBot subclasses,
-    though you may want to override other ones.
-    In this example, you can change the prompts to be whatever you want since,
-    structure_output uses an LLMto intelligently reformat the output into the needed structure.
-
-    By default (i.e. 'tournament' mode), when you run this script, it will forecast on any open questions for the
-    MiniBench and Seasonal AIB tournaments. If you want to forecast on only one or the other, you can remove one
-    of them from the 'tournament' mode code at the bottom of the file.
-
-    You can experiment with what models work best with your bot by using the `llms` parameter when initializing the bot.
-    You can initialize the bot with any number of models. For example,
-    ```python
-    my_bot = MyBot(
-        ...
-        llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
-            "default": GeneralLlm(
-                model="openrouter/openai/gpt-4o", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
-                temperature=0.3,
-                timeout=40,
-                allowed_tries=2,
-            ),
-            "summarizer": "openai/gpt-4o-mini",
-            "researcher": "asknews/deep-research/low",
-            "parser": "openai/gpt-4o-mini",
-        },
-    )
-    ```
-
-    Then you can access the model in custom functions like this:
-    ```python
-    research_strategy = self.get_llm("researcher", "model_name"
-    if research_strategy == "asknews/deep-research/low":
-        ...
-    # OR
-    summarizer = await self.get_llm("summarizer", "model_name").invoke(prompt)
-    # OR
-    reasoning = await self.get_llm("default", "llm").invoke(prompt)
-    ```
-
-    If you end up having trouble with rate limits and want to try a more sophisticated rate limiter try:
-    ```python
-    from forecasting_tools import RefreshingBucketRateLimiter
-    rate_limiter = RefreshingBucketRateLimiter(
-        capacity=2,
-        refresh_rate=1,
-    ) # Allows 1 request per second on average with a burst of 2 requests initially. Set this as a class variable
-    await self.rate_limiter.wait_till_able_to_acquire_resources(1) # 1 because it's consuming 1 request (use more if you are adding a token limit)
-    ```
-    Additionally OpenRouter has large rate limits immediately on account creation
     """
 
     _max_concurrent_questions = (
-        1  # Set this to whatever works for your search-provider/ai-model rate limits
+        1
     )
     _concurrency_limiter = asyncio.Semaphore(_max_concurrent_questions)
 
@@ -115,8 +57,7 @@ class FallTemplateBot2025(ForecastBot):
                 f"""
                 You are an assistant to a superforecaster.
                 The superforecaster will give you a question they intend to forecast on.
-                To be a great assistant, you generate a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
-                You do not produce forecasts yourself.
+                Your task is to compile a high‑signal news brief that maximizes accuracy and relevance for downstream forecasting models.
 
                 Question:
                 {question.question_text}
@@ -125,15 +66,77 @@ class FallTemplateBot2025(ForecastBot):
                 {question.resolution_criteria}
 
                 {question.fine_print}
+
+                Produce a summary of all relevant news articles for this question. For each item, include:
+                - Headline
+                - Source/Outlet
+                - Publication date (YYYY-MM-DD)
+                - URL
+                - A 1–2 sentence summary of the key facts
+
+                Curation guidelines:
+                - Prioritize very recent items (last 30–90 days), but also include key background pieces that materially affect the answer, including important events that occurred after common LLM knowledge cutoffs.
+                - Deduplicate near-identical reports; use credible sources; prefer primary reporting when possible.
+                - Organize in reverse chronological order under two sections: "Recent" and "Background".
+                - Tie summaries to the resolution criteria when relevant (e.g., thresholds, dates, definitions).
+                - Do not produce forecasts; only report evidence. However, state explicitly if, based on current evidence and the criteria, the question would resolve Yes or No today, and why (2–3 sentences).
+                - Keep the brief concise, factual, and citation-rich.
                 """
             )
 
             if isinstance(researcher, GeneralLlm):
                 research = await researcher.invoke(prompt)
             elif researcher == "asknews/news-summaries":
-                research = await AskNewsSearcher().get_formatted_news_async(
-                    question.question_text
+                # Use AskNewsSDK streaming deep_news and collect chunks into a single string
+                client_id = os.getenv("ASKNEWS_CLIENT_ID")
+                client_secret = os.getenv("ASKNEWS_SECRET")
+                if not client_id or not client_secret:
+                    raise RuntimeError(
+                        "ASKNEWS_CLIENT_ID/ASKNEWS_SECRET not set. Add them to your environment/.env."
+                    )
+
+                sdk = AskNewsSDK(
+                    client_id=client_id,
+                    client_secret=client_secret,
+                    scopes=["chat", "news", "stories"],
                 )
+
+                try:
+                    stream = sdk.chat.get_deep_news(
+                        messages=[{"role": "user", "content": prompt}],
+                        search_depth=2,
+                        max_depth=2,
+                        model="deepseek-basic",
+                        return_sources=False,
+                        filter_params=None,
+                        stream=True,
+                    )
+
+                    chunks: list[str] = []
+                    for message in stream:
+                        try:
+                            chunk = message.choices[0].delta.content
+                        except Exception:
+                            chunk = None
+                        if chunk:
+                            chunks.append(chunk)
+                    research = "".join(chunks)
+                except Exception as e:
+                    # Handle AskNews usage/plan limits gracefully by falling back to summarizer LLM
+                    es = str(e)
+                    if (
+                        "403012" in es  # usage limit exceeded for chat_tokens
+                        or "403013" in es  # plan lacks access to 'news'
+                        or "does not have access to 'news'" in es
+                        or "ForbiddenError" in es
+                    ):
+                        logger.warning(
+                            "AskNews error (%s). Falling back to summarizer LLM for research.",
+                            es,
+                        )
+                        research = await self.get_llm("summarizer", "llm").invoke(prompt)
+                    else:
+                        raise
             elif researcher == "asknews/deep-research/medium-depth":
                 research = await AskNewsSearcher().get_formatted_deep_research(
                     question.question_text,
@@ -168,6 +171,16 @@ class FallTemplateBot2025(ForecastBot):
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
+        # Optional multi-forecaster ensemble path (opt-in via env var)
+        try:
+            ensemble_n = int(os.getenv("FORECAST_ENSEMBLE_SIZE", "0"))
+        except ValueError:
+            ensemble_n = 0
+        if ensemble_n and ensemble_n >= 3:
+            return await self._run_forecast_on_binary_with_ensemble(
+                question, research, ensemble_n
+            )
+
         prompt = clean_indents(
             f"""
             You are a professional forecaster interviewing for a job.
@@ -212,6 +225,205 @@ class FallTemplateBot2025(ForecastBot):
             f"Forecasted URL {question.page_url} with prediction: {decimal_pred}"
         )
         return ReasonedPrediction(prediction_value=decimal_pred, reasoning=reasoning)
+
+    @staticmethod
+    def _last_number(text: str) -> float | None:
+        m = re.search(r"(-?\d+(?:\.\d+)?)(?!.*\d)", text, flags=re.S)
+        return float(m.group(1)) if m else None
+
+    @staticmethod
+    def _expert_to_forecaster(text: str) -> str | None:
+        m = re.search(r"(?is)\b(expert\b.*?\bforecaster)\b", text)
+        return m.group(1).strip() if m else None
+
+    @staticmethod
+    def _str_to_int_list(string: str) -> list[int]:
+        return [int(x) for x in re.findall(r"-?\d+", string)]
+
+    @staticmethod
+    def _compute_weights_from_ranks(ranks: list[int]) -> list[float]:
+        """
+        Implements weighting from the user's example:
+        - Compute rank_pct = (rank-1)/(n-1)
+        - Drop bottom third (keep rank_pct < 2/3)
+        - Map kept items to RawWeight via buckets on rank_pct: <2/15->5, <4/15->4, <6/15->3, <8/15->2, else 1
+        - Normalize weights to sum to 1 across kept items; set dropped items' weight to 0
+        """
+        n = len(ranks)
+        if n <= 1:
+            return [1.0]
+        # Compute rank_pct
+        rank_pcts = [((r - 1.0) / (n - 1.0)) for r in ranks]
+        kept = [rp < (2.0 / 3.0) for rp in rank_pcts]
+
+        raw_weights: list[float] = []
+        for keep, rp in zip(kept, rank_pcts):
+            if not keep:
+                raw_weights.append(0.0)
+                continue
+            if rp < (2.0 / 15.0):
+                raw_weights.append(5.0)
+            elif rp < (4.0 / 15.0):
+                raw_weights.append(4.0)
+            elif rp < (6.0 / 15.0):
+                raw_weights.append(3.0)
+            elif rp < (8.0 / 15.0):
+                raw_weights.append(2.0)
+            else:
+                raw_weights.append(1.0)
+
+        total = sum(raw_weights)
+        if total <= 0:
+            # Fallback: uniform weighting if everything was dropped
+            return [1.0 / n for _ in ranks]
+        return [rw / total for rw in raw_weights]
+
+    async def _run_forecast_on_binary_with_ensemble(
+        self, question: BinaryQuestion, research: str, n_personas: int
+    ) -> ReasonedPrediction[float]:
+        """
+        Generate multiple expert forecaster personas, have each produce a forecast,
+        then LLM-rank personas by relevance and compute a weighted ensemble.
+        Controlled via FORECAST_ENSEMBLE_SIZE env var.
+        """
+        output_limit = 200
+        qtext = question.question_text
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 1) Generate personas
+        persona_prompt = clean_indents(
+            f"""
+            You are generating {n_personas} expert forecaster PERSONAS for the single forecasting QUESTION below.
+
+            OBJECTIVE
+            Return a Python list of {n_personas} strings. Each string must be formatted EXACTLY:
+            "You an expert <domain> forecaster specialized in <narrow specialization tied to the QUESTION>. Consider: <10 concise, comma-separated considerations>, Show your reasoning limited to {output_limit} tokens; end with prediction as last tokens, on its own line"
+
+            INPUT
+            QUESTION: <<{qtext}>>
+            OUTPUT_LIMIT: {output_limit}
+
+            RULES
+            1) Infer exactly ONE concise <domain> phrase from the QUESTION and use it verbatim in EVERY item. Do not mix domains.
+            2) Create {n_personas} DISTINCT experts by varying sub-specialization/background and which considerations they emphasize.
+            3) The "Consider:" list must contain EXACTLY 10 items, comma-separated, short, domain-relevant, no trailing period.
+            4) Each item MUST start exactly with "You an expert " and include the substrings "forecaster specialized in ", "Consider: ", and the trailing clause exactly as written above.
+            5) Output ONLY the Python list literal with DOUBLE-QUOTED strings. No prose, no backticks, no numbering, no extra lines before/after.
+
+            Now produce the list.
+            """
+        )
+        persona_llm = self.get_llm("persona_generator", "llm") or self.get_llm(
+            "default", "llm"
+        )
+        raw_personas = await persona_llm.invoke(persona_prompt)
+        personas: list[str]
+        try:
+            personas = json.loads(raw_personas)
+        except Exception:
+            # Try to extract a JSON list literal substring
+            m = re.search(r"\[[\s\S]*\]", raw_personas)
+            if not m:
+                raise RuntimeError("Failed to parse persona list from LLM output")
+            personas = json.loads(m.group(0))
+
+        # 2) Each persona produces a probability given research
+        async def call_persona(p: str) -> tuple[str, str, float | None]:
+            forecaster_short = self._expert_to_forecaster(p) or "expert forecaster"
+            prompt = clean_indents(
+                f"""
+                {p}
+
+                Your question is: {qtext}
+                Today is {today}.
+                Please consider the following recent research and evidence in your forecast:
+                {research}
+
+                Answer ONLY with your detailed reasoning followed by a final line as:
+                Probability: ZZ%
+                """
+            )
+            text = await self.get_llm("default", "llm").invoke(prompt)
+            prob = self._last_number(text)
+            return p, forecaster_short, prob
+
+        results = await asyncio.gather(*[call_persona(p) for p in personas])
+        persona_texts: list[str] = []
+        forecaster_names: list[str] = []
+        probs: list[float] = []
+        for full_text, short_name, prob in results:
+            persona_texts.append(full_text)
+            forecaster_names.append(short_name)
+            probs.append(prob if prob is not None else float("nan"))
+
+        # Drop NaNs for weighting calc but keep alignment
+        valid_indices = [i for i, v in enumerate(probs) if v == v]
+        if not valid_indices:
+            # Fallback to single-shot flow if no persona returned a prob
+            return await self._run_forecast_on_binary(question, research)
+
+        # 3) Rank forecasters by relevance using LLM
+        enum_block = "\n".join(
+            f"{i+1}. {forecaster_names[i]}" for i in range(len(forecaster_names))
+        )
+        k = len(forecaster_names)
+        rank_prompt = clean_indents(
+            f"""
+            Rank the following forecasters by relevance to the question. Use ranks 1..{k}, where 1 = most relevant.
+            Question: {qtext}
+
+            Forecasters (in fixed order):
+            {enum_block}
+
+            OUTPUT FORMAT (MANDATORY):
+            - Output ONLY a Python list of length {k}.
+            - The i-th element is the rank (1..{k}) assigned to the i-th forecaster above.
+            - Use each rank exactly once (no ties).
+            - No text, no quotes, no backticks, no trailing commas.
+
+            Example: [3, 1, 2]  (for k=3)
+            """
+        )
+        rank_llm = self.get_llm("ranker", "llm") or self.get_llm("default", "llm")
+        raw_ranks = await rank_llm.invoke(rank_prompt)
+        ranks = self._str_to_int_list(raw_ranks)
+        if len(ranks) != k:
+            # If parser failed, assign uniform ranks by index
+            ranks = list(range(1, k + 1))
+
+        # 4) Compute weights per persona
+        weights = self._compute_weights_from_ranks(ranks)
+
+        # 5) Weighted probability (using only valid probs)
+        # Align weights and probs; if a prob is NaN, set weight to 0 and renormalize
+        adj_weights = [w if (probs[i] == probs[i]) else 0.0 for i, w in enumerate(weights)]
+        total_w = sum(adj_weights) or 1.0
+        adj_weights = [w / total_w for w in adj_weights]
+        weighted_pct = sum((probs[i] if probs[i] == probs[i] else 0.0) * adj_weights[i] for i in range(k))
+
+        # Bound and convert to decimal
+        final_pct = round(max(0.0, min(100.0, weighted_pct)), 0)
+        final_decimal = max(0.01, min(0.99, float(final_pct) / 100.0))
+
+        # Build concise reasoning summary
+        top_n_to_show = min(5, k)
+        top_indices = sorted(range(k), key=lambda i: ranks[i])[:top_n_to_show]
+        preview = "\n".join(
+            f"- {forecaster_names[i]} (rank {ranks[i]}, w={adj_weights[i]:.2f}): {probs[i]:.1f}%"
+            for i in top_indices
+        )
+        reasoning = clean_indents(
+            f"""
+            Ensemble of {k} expert forecasters considered, ranked by relevance, and weighted.
+            Top forecasters preview:\n{preview}
+
+            Probability: {int(final_pct)}%
+            """
+        )
+        logger.info(
+            f"Ensemble forecast for URL {question.page_url}: {final_decimal} (from {k} personas)"
+        )
+        return ReasonedPrediction(prediction_value=final_decimal, reasoning=reasoning)
 
     async def _run_forecast_on_multiple_choice(
         self, question: MultipleChoiceQuestion, research: str
@@ -401,59 +613,77 @@ if __name__ == "__main__":
 
     template_bot = FallTemplateBot2025(
         research_reports_per_question=1,
-        predictions_per_research_report=5,
+        predictions_per_research_report=1,
         use_research_summary_to_forecast=False,
         publish_reports_to_metaculus=True,
         folder_to_save_reports_to=None,
         skip_previously_forecasted_questions=True,
-        # llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
-        #     "default": GeneralLlm(
-        #         model="openrouter/openai/gpt-4o", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
-        #         temperature=0.3,
-        #         timeout=40,
-        #         allowed_tries=2,
-        #     ),
-        #     "summarizer": "openai/gpt-4o-mini",
-        #     "researcher": "asknews/deep-research/low",
-        #     "parser": "openai/gpt-4o-mini",
-        # },
+        llms={  # choose your model names or GeneralLlm llms here, otherwise defaults will be chosen for you
+            "default": GeneralLlm(
+                model="openrouter/openai/gpt-4o-mini", # "anthropic/claude-3-5-sonnet-20241022", etc (see docs for litellm)
+                temperature=0.3,
+                timeout=40,
+                allowed_tries=2,
+            ),
+            "summarizer": "openrouter/perplexity/sonar",
+            "researcher": "asknews/news-summaries",
+            "parser": "openrouter/openai/gpt-4o-mini",
+        },
     )
 
-    if run_mode == "tournament":
-        seasonal_tournament_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                MetaculusApi.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+    # Track cost/time and print supplemental metadata after the standard summary
+    import time
+    start_ts = time.perf_counter()
+    with MonetaryCostManager() as _cost_manager:
+        if run_mode == "tournament":
+            seasonal_tournament_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    MetaculusApi.CURRENT_AI_COMPETITION_ID, return_exceptions=True
+                )
             )
-        )
-        minibench_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True
+            minibench_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    MetaculusApi.CURRENT_MINIBENCH_ID, return_exceptions=True
+                )
             )
-        )
-        forecast_reports = seasonal_tournament_reports + minibench_reports
-    elif run_mode == "metaculus_cup":
-        # The Metaculus cup is a good way to test the bot's performance on regularly open questions. You can also use AXC_2025_TOURNAMENT_ID = 32564 or AI_2027_TOURNAMENT_ID = "ai-2027"
-        # The Metaculus cup may not be initialized near the beginning of a season (i.e. January, May, September)
-        template_bot.skip_previously_forecasted_questions = False
-        forecast_reports = asyncio.run(
-            template_bot.forecast_on_tournament(
-                MetaculusApi.CURRENT_METACULUS_CUP_ID, return_exceptions=True
+            forecast_reports = seasonal_tournament_reports + minibench_reports
+        elif run_mode == "metaculus_cup":
+            # The Metaculus cup is a good way to test the bot's performance on regularly open questions. You can also use AXC_2025_TOURNAMENT_ID = 32564 or AI_2027_TOURNAMENT_ID = "ai-2027"
+            # The Metaculus cup may not be initialized near the beginning of a season (i.e. January, May, September)
+            template_bot.skip_previously_forecasted_questions = False
+            forecast_reports = asyncio.run(
+                template_bot.forecast_on_tournament(
+                    MetaculusApi.CURRENT_METACULUS_CUP_ID, return_exceptions=True
+                )
             )
-        )
-    elif run_mode == "test_questions":
-        # Example questions are a good way to test the bot's performance on a single question
-        EXAMPLE_QUESTIONS = [
-            "https://www.metaculus.com/questions/578/human-extinction-by-2100/",  # Human Extinction - Binary
-            "https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
-            "https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
-            "https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
-        ]
-        template_bot.skip_previously_forecasted_questions = False
-        questions = [
-            MetaculusApi.get_question_by_url(question_url)
-            for question_url in EXAMPLE_QUESTIONS
-        ]
-        forecast_reports = asyncio.run(
-            template_bot.forecast_questions(questions, return_exceptions=True)
-        )
+        elif run_mode == "test_questions":
+            # Example questions are a good way to test the bot's performance on a single question
+            EXAMPLE_QUESTIONS = [
+                "https://www.metaculus.com/questions/578/human-extinction-by-2100/"#,  # Human Extinction - Binary
+                #"https://www.metaculus.com/questions/14333/age-of-oldest-human-as-of-2100/",  # Age of Oldest Human - Numeric
+                #"https://www.metaculus.com/questions/22427/number-of-new-leading-ai-labs/",  # Number of New Leading AI Labs - Multiple Choice
+                #"https://www.metaculus.com/c/diffusion-community/38880/how-many-us-labor-strikes-due-to-ai-in-2029/",  # Number of US Labor Strikes Due to AI in 2029 - Discrete
+            ]
+            template_bot.skip_previously_forecasted_questions = False
+            questions = [
+                MetaculusApi.get_question_by_url(question_url)
+                for question_url in EXAMPLE_QUESTIONS
+            ]
+            forecast_reports = asyncio.run(
+                template_bot.forecast_questions(questions, return_exceptions=True)
+            )
+    # Print the default summary
     template_bot.log_report_summary(forecast_reports)
+
+    # Print supplemental metadata with real values (cost/time/LLMs/bot name)
+    elapsed_minutes = (time.perf_counter() - start_ts) / 60.0
+    def _model_name(val):
+        return val.model if isinstance(val, GeneralLlm) else str(val)
+    # Some ForecastBot implementations store LLMs as a private attribute
+    _llms_map = getattr(template_bot, "_llms", {}) or {}
+    llm_entries = [f"{k}: {_model_name(v)}" for k, v in _llms_map.items()] or ["n/a"]
+    logger.info("\n---------------- Supplemental Metadata ----------------")
+    logger.info(f"Total Cost: {_cost_manager.current_usage}")
+    logger.info(f"Time Spent: {elapsed_minutes:.2f} minutes")
+    logger.info(f"LLMs: {'; '.join(llm_entries)}")
+    logger.info(f"Bot Name: {template_bot.__class__.__name__}")
