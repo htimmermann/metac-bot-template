@@ -6,7 +6,7 @@ from typing import Literal
 import os
 import ast
 import re
-import openai
+from openai import OpenAI
 
 from forecasting_tools import (
     AskNewsSearcher,
@@ -28,25 +28,6 @@ from forecasting_tools import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-FALLBACK_PERSONA_HEADERS: list[str] = [
-    (
-        "You an expert leader-travel forecaster specialized in high-profile bilateral visits under legal, security, and political constraints. "
-        "Consider: bilateral relations, election calendars, legal exposure/extradition risk, sanctions/visas, summit piggybacking, security assessments, public schedules/NOTAMs, prior travel patterns, logistics windows, media trial balloons, "
-        "Show your reasoning limited to {output_limit} tokens; end with prediction as last tokens, on its own line"
-    ),
-    (
-        "You an expert summit-attendance forecaster specialized in leader participation at G7/NATO/UN events from diplomatic and logistical signals. "
-        "Consider: official agendas, domestic constraints, security/legal exposure, aircraft routing, proxy/ministerial substitutes, sanctions/visa issues, bilateral side-meetings, past attendance, health factors, last-minute cancellations, "
-        "Show your reasoning limited to {output_limit} tokens; end with prediction as last tokens, on its own line"
-    ),
-    (
-        "You an expert AI-benchmark forecaster specialized in leaderboard rank dynamics (e.g., Chatbot Arena) and #1 tenure. "
-        "Consider: new model launches, evaluation settings, voting volume/brigading, rate limits, dataset familiarity, inference latency/cost, community sentiment, scoring rule changes, prior tenure, meta-updates, "
-        "Show your reasoning limited to {output_limit} tokens; end with prediction as last tokens, on its own line"
-    ),
-]
 
 
 class FallTemplateBot2025(ForecastBot):
