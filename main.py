@@ -6,6 +6,7 @@ from typing import Literal
 import os
 import ast
 import re
+import openai
 
 from forecasting_tools import (
     AskNewsSearcher,
@@ -29,9 +30,6 @@ from forecasting_tools import (
 logger = logging.getLogger(__name__)
 
 
-# Persona definitions: a short `name` and a detailed `header_template`.
-# `header_template` is formatted at runtime with `{output_limit}`.
-# Fallback static personas in case LLM generation fails irrecoverably.
 FALLBACK_PERSONA_HEADERS: list[str] = [
     (
         "You an expert leader-travel forecaster specialized in high-profile bilateral visits under legal, security, and political constraints. "
@@ -169,117 +167,173 @@ Now produce the list.
             research = ""
             researcher = self.get_llm("researcher")
 
-            prompt = clean_indents(
+            research_prompt = clean_indents(
                 f"""
-                You are an assistant to a superforecaster.
-                The superforecaster will give you a question they intend to forecast on.
-                To be a great assistant, you generate a concise but detailed rundown of the most relevant news, including if the question would resolve Yes or No based on current information.
-                You do not produce forecasts yourself.
+You are a research pre-processor for a forecasting system.
 
-                Question:
-                {question.question_text}
+Your only task is to collect and structure all factual, recent, and historically relevant information that a forecasting model would need to answer the question. Do not make a forecast. Do not express likelihood. Do not omit recent events if they could change the base rate. Do not add filler.
 
-                This question's outcome will be determined by the specific criteria below:
-                {question.resolution_criteria}
+The question is:
+{question}
 
-                {question.fine_print}
+OUTPUT MUST FOLLOW THE EXACT SECTION ORDER BELOW.
+
+============================================================
+SECTIONS (IN THIS ORDER):
+
+QUESTION:
+Restate the question verbatim: {question};  This question's outcome will be determined by the specific criteria below: {question.resolution_criteria}, {question.fine_print}
+
+QUESTION CLASSIFICATION:
+Identify the main type(s) from this list (pick 1–3):
+- policy_legislation_regulation (e.g. "Will the US Congress pass...", "Will the US require...", "Will FTC ban non-competes...")
+- executive_agency_action (e.g. HHS/CDC/WHO declarations, OFAC, export controls, licensing)
+- corporate_product_strategy (e.g. "Will Google implement...", "Will Apple allow...", "Will OpenAI offer...", "Will Boeing file for bankruptcy...")
+- AI_safety_governance (e.g. joint statements, AGI claims, AI export controls, AI licensing)
+- geopolitics_conflict_sanctions (e.g. nuclear tests, closures of straits, troop deaths, ceasefires)
+- macro_financial_timeseries (e.g. “ending value of UST 10Y”, “Nvidia vs Apple returns”, “VIX intraday max”, “nonfarm payrolls”)
+- elections_leadership (e.g. “Who will be president…”, “Will Netanyahu remain…”, “UK Labour leadership…”)
+- health_outbreak_pandemic (e.g. H5N1 human-to-human, PHEIC, US public health emergency)
+- climate_energy_IRA (e.g. 45X, 45Y, 48E requirements, IRA repeal/adder changes)
+- philanthropy_global_dev (e.g. GiveWell, New Incentives, chlorine grants)
+- space_launch_tech (e.g. SpaceX launch failures, orbital launches)
+- sports_cultural_events (e.g. LoL Worlds, F1, NY Marathon times)
+
+SUMMARY_OF_TARGET_EVENT:
+1–4 sentences describing what the question is about, including deadline, jurisdiction, and main decision-maker(s). Include the exact deadline present in the question.
+
+RECENT_DEVELOPMENTS:
+List the most recent factual events, proposals, public statements, filings, press releases, or news reports that bear directly on the question. Include dates. Prefer the last 12–18 months. For policy questions, include: bill text introduced, committee actions, executive orders, court challenges, agency NPRMs, relevant elections. For corporate questions, include: official product announcements, regulatory pressure, EU/UK/US competition rulings, developer betas, and prior commitments. For macro/markets, include: last observed values and date stamps. Write as bullet points.
+
+INSTITUTIONAL_AND_PROCEDURAL_CONSTRAINTS:
+Describe the exact pathway by which the event in the question could occur, in that jurisdiction/organization.
+Examples:
+- US Congress: introduction → committee → chamber votes → reconciliation → president.
+- EU/UK competition/DSA/DMA: investigation → preliminary finding → compliance deadline → appeal.
+- US executive/agency: statutory authority → public health emergency criteria → precedent.
+- Corporate: regulatory pressure (e.g. UK CMA, EU DMA) → compliance window → software change shipped.
+- Geopolitics: military capability → political objective → escalation ladder → third-party mediation.
+Be concrete about which bodies must act.
+
+HISTORICAL_PRECEDENTS_AND_BASELINES:
+Provide historical examples that are structurally similar to the question.
+- For public health (e.g. “Will H5N1 get PHEIC?”): list past PHEICs, their triggers, case counts, geographic spread, and time from first detection to declaration.
+- For tariff/trade/IRA changes: list prior uses of similar authorities, successful vs failed attempts, court challenges.
+- For “Will X company do Y?” under regulatory pressure: list cases where Apple/Google/Meta changed product behavior in 1) EU, 2) UK, 3) US because of regulation.
+- For “Will Strait of Hormuz be closed?”: list past partial disruptions, naval incidents, sanctions-linked escalations.
+- For “Will UN have >193 members?”: list last admissions, criteria, current candidates.
+If there is no close precedent, state “no close precedent; closest analogues are: …”.
+
+KEY_ACTORS_AND_INCENTIVES:
+List the decision-makers and their observable incentives.
+Include:
+- governments (US Congress, White House, agencies)
+- foreign governments involved
+- companies (Apple, Google, OpenAI, Nvidia, Boeing, SpaceX, Maersk…)
+- regulators (FTC, CMA, EC, OFAC, USTR)
+- multilateral orgs (UN, NATO, WHO, IMF, EU)
+For each actor, state: role, lever of control, evidence (statement/action), and whether they can unilaterally cause the event.
+
+DATA_AND_INDICATORS:
+Provide hard data relevant to the question. Tailor by class:
+
+- macro_financial_timeseries:
+  - latest available value(s) for the instrument(s) in question (e.g. UST 10Y, ICE BofA HY OAS, VIX intraday high, S&P 500 futures, Nasdaq-100 futures, crude oil futures, gold futures) with dates.
+  - recent volatility or spread patterns.
+  - scheduled releases (CPI, payrolls, FOMC, earnings dates).
+  - known seasonal patterns if the question is month-specific (e.g. Nov-25 payrolls).
+
+- equities_earnings (e.g. “first reported EPS after Sep 2025 for TSLA/META/MSFT”):
+  - last 4 quarters’ reported EPS/revenues with dates.
+  - company’s reporting cadence and expected next report window.
+  - major company guidance or known headwinds/tailwinds.
+  - any corporate events that could affect revenue/EPS (product launches, regulatory fines, supply chain issues).
+
+- health_outbreak_pandemic:
+  - latest human and animal case counts, by country.
+  - current CDC/WHO/HHS risk assessment levels.
+  - confirmed or suspected human-to-human transmission events.
+  - vaccination/antiviral stockpiles and funding.
+  - geographic spread and biosecurity incidents.
+
+- policy_legislation_regulation / IRA_energy:
+  - current statutory text or proposed amendments (45X, 45Y, 48E etc.).
+  - compliance or domestic content deadlines.
+  - litigation or repeal attempts (identify chamber, bill name, sponsor).
+  - relevant economic or sectoral data (domestic manufacturing capacity, import dependencies).
+
+- geopolitics_conflict_sanctions:
+  - current military activity, troop presence, recent casualties.
+  - recent negotiations or peace talks (date, actors, outcome).
+  - sanctions regimes in effect and recent escalations.
+  - known trigger events for escalation (attacks on shipping, drone attacks, pipeline disruptions).
+
+STRUCTURAL_OR_LONG-RUN_FACTORS:
+Describe background factors that change slowly but affect the forecast:
+- election calendars and likely partisan control shifts
+- regulatory waves (AI safety, tech competition, export controls)
+- ongoing wars and frozen conflicts
+- climate trends relevant to weather/hurricane/temperature questions
+- AI race dynamics (frontier labs, compute bottlenecks, GPU reporting regimes)
+- IRA implementation dynamics (domestic content, adders, repeal attempts)
+
+EDGE_CASES_AND_BLOCKERS:
+List specific developments that would make the event much harder or impossible:
+- adverse court ruling
+- change in legislative majority
+- company exiting a market
+- treaty/vote requiring unanimity
+- technological infeasibility within the time window
+Also list “fast paths” (e.g. emergency authority, executive order, forced compliance via DMA/CMA).
+
+REFERENCES:
+List the sources or source types a researcher should pull from (exact agency/company/org names; add report names where relevant). Prefer:
+- US: congress.gov, whitehouse.gov, federalregister.gov, treasury.gov, commerce.gov, hhs.gov, cdc.gov
+- Multilateral: who.int, un.org, nato.int, imf.org, worldbank.org
+- Corporate: investor relations pages, SEC/EDGAR, official press rooms
+- Markets/data: Fed, BLS, BEA, EIA, ICE, CME
+Do not describe the source, just list it.
+
+============================================================
+CONSTRAINTS:
+- Do NOT make a forecast or say anything like “likely,” “unlikely,” “could,” “may,” “expected.”
+- Do NOT argue or prioritize scenarios.
+- Do NOT output explanations of what you are doing.
+- Do NOT talk to the user; just output the sections.
+- Be terse but complete.
                 """
             )
+            
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if not api_key:
+                raise RuntimeError("OPENROUTER_API_KEY is not set in environment")
 
-            if isinstance(researcher, GeneralLlm):
-                research = await researcher.invoke(prompt)
-            elif researcher == "asknews/news-summaries":
-                research = await AskNewsSearcher().get_formatted_news_async(
-                    question.question_text
-                )
-            elif researcher == "asknews/deep-research/medium-depth":
-                research = await AskNewsSearcher().get_formatted_deep_research(
-                    question.question_text,
-                    sources=["asknews", "google"],
-                    search_depth=2,
-                    max_depth=4,
-                )
-            elif researcher == "asknews/deep-research/high-depth":
-                research = await AskNewsSearcher().get_formatted_deep_research(
-                    question.question_text,
-                    sources=["asknews", "google"],
-                    search_depth=4,
-                    max_depth=6,
-                )
-            elif researcher.startswith("smart-searcher"):
-                model_name = researcher.removeprefix("smart-searcher/")
-                searcher = SmartSearcher(
+            client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+
+            def get_forecast(model_name: str, message: str) -> str:
+                completion = client.chat.completions.create(
+                    extra_body={},
                     model=model_name,
-                    temperature=0,
-                    num_searches_to_run=2,
-                    num_sites_per_search=10,
-                    use_advanced_filters=False,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": message,
+                        }
+                    ],
                 )
-                research = await searcher.invoke(prompt)
-            elif researcher == "perplexity" or (
-                isinstance(researcher, str) and researcher.startswith("perplexity/")
-            ):
-                # Use OpenRouter to call Perplexity models, mirroring the provided snippet
-                try:
-                    from openai import OpenAI
-                except Exception as e:
-                    raise RuntimeError(
-                        "openai package is required for Perplexity research via OpenRouter"
-                    ) from e
-
-                api_key = os.getenv("OPENROUTER_API_KEY")
-                if not api_key:
-                    raise RuntimeError("OPENROUTER_API_KEY is not set in environment")
-
-                client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
-
-                def get_forecast(model_name: str, message: str) -> str:
-                    completion = client.chat.completions.create(
-                        extra_body={},
-                        model=model_name,
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": message,
-                            }
-                        ],
-                    )
-                    agent_response = completion.choices[0].message.content
-                    print(
-                        "Model Used: "
-                        + model_name
-                        + " \n Reasoning: "
-                        + agent_response
-                        + "\n \n \n"
-                    )
-                    return agent_response
-
-                question_text = question.question_text
-                px_prompt = f"""
-                You are a research assistant. Find all materially relevant news for the QUESTION below, not just recent items—include seminal or high-impact older coverage if it adds context.
-
-                REQUIREMENTS
-                - Search broadly (multi-hop) and expand key terms, synonyms, and entities.
-                - Cover the full timeline: earliest notable item → most recent updates.
-                - De-duplicate near-duplicates; keep the best source per event.
-                - Prefer reputable outlets; avoid paywalled summaries without original reporting.
-                - Normalize dates to ISO 8601 (YYYY-MM-DD).
-                - OUTPUT ONLY the following fields in JSON Lines (one JSON object per line), nothing else:
-                  {{"headline": "...", "brief_content": "...", "date": "YYYY-MM-DD"}}
-
-                QUESTION: {question_text}
-                """
-
-                model_name = (
-                    researcher if isinstance(researcher, str) and researcher.startswith("perplexity/") else "perplexity/sonar-pro"
+                agent_response = completion.choices[0].message.content
+                print(
+                    "Model Used: "
+                    + model_name
+                    + " \n Reasoning: "
+                    + agent_response
+                    + "\n \n \n"
                 )
-                research = get_forecast(model_name=model_name, message=px_prompt)
-            elif not researcher or researcher == "None":
-                research = ""
-            else:
-                research = await self.get_llm("researcher", "llm").invoke(prompt)
-            logger.info(f"Found Research for URL {question.page_url}:\n{research}")
-            return research
+                return agent_response
+
+            research_report = get_forecast(model_name='perplexity', message=research_prompt)
+           
+            return research_report
 
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
