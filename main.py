@@ -312,7 +312,7 @@ CONSTRAINTS:
                 )
                 return agent_response
 
-            research_report = get_forecast(model_name='perplexity', message=research_prompt)
+            research_report = get_forecast(model_name='perplexity/sonar', message=research_prompt)
            
             return research_report
 
