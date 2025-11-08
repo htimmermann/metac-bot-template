@@ -216,6 +216,8 @@ CONSTRAINTS:
                     + "\n \n \n"
                 )
                 return agent_response
+            
+            print(question, question.resolution_criteria, question.fine_print)
 
             research_report = get_forecast(model_name='openai/gpt-3.5-turbo', message=research_prompt)
            
