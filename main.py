@@ -29,6 +29,32 @@ from forecasting_tools import (
 
 logger = logging.getLogger(__name__)
 
+base_forecast_prompt = f"""
+
+    You are a professional forecaster interviewing for a job.
+
+    Your interview question is:
+    {question.question_text}
+
+    Question background:
+    {question.background_info}
+
+    This question’s outcome will be determined by the following criteria (which have not yet been satisfied):
+    {question.resolution_criteria}
+    {question.fine_print}
+
+    Research briefing:
+    {research}
+
+    Today is {datetime.now().strftime("%Y-%m-%d")}.
+
+    Your task:
+    - Reason step-by-step through the question using only the information provided in the research briefing.
+    - Identify key causal mechanisms, dependencies, and constraints that would determine the outcome.
+    - Consider both pathways in which critical events occur and those in which they do not — explain how each scenario would shape the outcome.
+    - Be explicit about institutional timing, actor incentives, and structural barriers.
+    - End with a short set of bullet points summarizing your reasoning chain and the main conditional factors that would change the answer
+                           """
 
 class FallTemplateBot2025(ForecastBot):
     """
@@ -145,9 +171,8 @@ Now produce the list.
 
     async def run_research(self, question: MetaculusQuestion) -> str:
         async with self._concurrency_limiter:
-            research = ""
-            researcher = self.get_llm("researcher")
 
+            #Comprehensive Research Prompt
             research_prompt = clean_indents(
                 f"""
 You are a research pre-processor for a forecasting system.
@@ -282,6 +307,7 @@ CONSTRAINTS:
 - Do NOT output explanations of what you are doing.
 - Do NOT talk to the user; just output the sections.
 - Be terse but complete.
+
                 """
             )
             
@@ -312,8 +338,6 @@ CONSTRAINTS:
                 )
                 return agent_response
             
-            print(question, question.resolution_criteria, question.fine_print)
-
             research_report = get_forecast(model_name='openai/gpt-3.5-turbo', message=research_prompt)
            
             return research_report
@@ -321,39 +345,8 @@ CONSTRAINTS:
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
-        persona_name, header = await self._get_persona(question)
-        logger.info(f"Persona (binary) for {question.page_url}: {persona_name} | {header}")
-        prompt = clean_indents(
+        prompt = clean_indents( base_forecast_prompt +
             f"""
-            {header}
-
-            Begin your answer with exactly this line:
-            Persona: {persona_name}
-
-            Your interview question is:
-            {question.question_text}
-
-            Question background:
-            {question.background_info}
-
-
-            This question's outcome will be determined by the specific criteria below. These criteria have not yet been satisfied:
-            {question.resolution_criteria}
-
-            {question.fine_print}
-
-
-            Your research assistant says:
-            {research}
-
-            Today is {datetime.now().strftime("%Y-%m-%d")}.
-
-            Before answering you write:
-            (a) The time left until the outcome to the question is known.
-            (b) The status quo outcome if nothing changed.
-            (c) A brief description of a scenario that results in a No outcome.
-            (d) A brief description of a scenario that results in a Yes outcome.
-
             You write your rationale remembering that good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time.
 
             The last thing you write is your final answer as: "Probability: ZZ%", 0-100
@@ -374,41 +367,8 @@ CONSTRAINTS:
     async def _run_forecast_on_multiple_choice(
         self, question: MultipleChoiceQuestion, research: str
     ) -> ReasonedPrediction[PredictedOptionList]:
-        persona_name, header = await self._get_persona(question)
-        logger.info(f"Persona (multiple choice) for {question.page_url}: {persona_name} | {header}")
-        prompt = clean_indents(
+        prompt = clean_indents(base_forecast_prompt + 
             f"""
-            {header}
-
-            Begin your answer with exactly this line:
-            Persona: {persona_name}
-
-            Your interview question is:
-            {question.question_text}
-
-            The options are: {question.options}
-
-
-            Background:
-            {question.background_info}
-
-            {question.resolution_criteria}
-
-            {question.fine_print}
-
-
-            Your research assistant says:
-            {research}
-
-            Today is {datetime.now().strftime("%Y-%m-%d")}.
-
-            Before answering you write:
-            (a) The time left until the outcome to the question is known.
-            (b) The status quo outcome if nothing changed.
-            (c) A description of an scenario that results in an unexpected outcome.
-
-            You write your rationale remembering that (1) good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time, and (2) good forecasters leave some moderate probability on most options to account for unexpected outcomes.
-
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
             Option_B: Probability_B
