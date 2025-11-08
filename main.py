@@ -180,22 +180,6 @@ Identify the main type(s) from this list (pick 1–3):
 - space_launch_tech (e.g. SpaceX launch failures, orbital launches)
 - sports_cultural_events (e.g. LoL Worlds, F1, NY Marathon times)
 
-SUMMARY_OF_TARGET_EVENT:
-1–4 sentences describing what the question is about, including deadline, jurisdiction, and main decision-maker(s). Include the exact deadline present in the question.
-
-RECENT_DEVELOPMENTS:
-List the most recent factual events, proposals, public statements, filings, press releases, or news reports that bear directly on the question. Include dates. Prefer the last 12–18 months. For policy questions, include: bill text introduced, committee actions, executive orders, court challenges, agency NPRMs, relevant elections. For corporate questions, include: official product announcements, regulatory pressure, EU/UK/US competition rulings, developer betas, and prior commitments. For macro/markets, include: last observed values and date stamps. Write as bullet points.
-
-INSTITUTIONAL_AND_PROCEDURAL_CONSTRAINTS:
-Describe the exact pathway by which the event in the question could occur, in that jurisdiction/organization.
-Examples:
-- US Congress: introduction → committee → chamber votes → reconciliation → president.
-- EU/UK competition/DSA/DMA: investigation → preliminary finding → compliance deadline → appeal.
-- US executive/agency: statutory authority → public health emergency criteria → precedent.
-- Corporate: regulatory pressure (e.g. UK CMA, EU DMA) → compliance window → software change shipped.
-- Geopolitics: military capability → political objective → escalation ladder → third-party mediation.
-Be concrete about which bodies must act.
-
 
 CONSTRAINTS:
 - Do NOT make a forecast or say anything like “likely,” “unlikely,” “could,” “may,” “expected.”
