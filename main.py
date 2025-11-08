@@ -315,7 +315,7 @@ CONSTRAINTS:
            
             return research_report
         
-    def make_forecast_prompt(question, research):
+    def make_forecast_prompt(self, question, research):
         base_forecast_prompt = f"""
 
             You are a professional forecaster interviewing for a job.
@@ -406,32 +406,10 @@ CONSTRAINTS:
         upper_bound_message, lower_bound_message = (
             self._create_upper_and_lower_bound_messages(question)
         )
-        persona_name, header = await self._get_persona(question)
-        logger.info(f"Persona (numeric) for {question.page_url}: {persona_name} | {header}")
-        prompt = clean_indents(
+        prompt = clean_indents(self.make_forecast_prompt(question, research) + 
             f"""
-            {header}
 
-            Begin your answer with exactly this line:
-            Persona: {persona_name}
-
-            Your interview question is:
-            {question.question_text}
-
-            Background:
-            {question.background_info}
-
-            {question.resolution_criteria}
-
-            {question.fine_print}
-
-            Units for answer: {question.unit_of_measure if question.unit_of_measure else "Not stated (please infer this)"}
-
-            Your research assistant says:
-            {research}
-
-            Today is {datetime.now().strftime("%Y-%m-%d")}.
-
+            Here are the lower and upper bounds:
             {lower_bound_message}
             {upper_bound_message}
 
@@ -440,17 +418,7 @@ CONSTRAINTS:
             - Never use scientific notation.
             - Always start with a smaller number (more negative if negative) and then increase from there
 
-            Before answering you write:
-            (a) The time left until the outcome to the question is known.
-            (b) The outcome if nothing changed.
-            (c) The outcome if the current trend continued.
-            (d) The expectations of experts and markets.
-            (e) A brief description of an unexpected scenario that results in a low outcome.
-            (f) A brief description of an unexpected scenario that results in a high outcome.
-
-            You remind yourself that good forecasters are humble and set wide 90/10 confidence intervals to account for unknown unknowns.
-
-            The last thing you write is your final answer as:
+            IMPORTANT: The last thing you write is your final answer as:
             "
             Percentile 10: XX
             Percentile 20: XX
