@@ -217,7 +217,7 @@ CONSTRAINTS:
                 )
                 return agent_response
 
-            research_report = get_forecast(model_name='perplexity/sonar-reasoning', message=research_prompt)
+            research_report = get_forecast(model_name='openai/gpt-3.5-turbo', message=research_prompt)
            
             return research_report
 
