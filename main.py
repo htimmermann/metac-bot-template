@@ -29,33 +29,6 @@ from forecasting_tools import (
 
 logger = logging.getLogger(__name__)
 
-base_forecast_prompt = f"""
-
-    You are a professional forecaster interviewing for a job.
-
-    Your interview question is:
-    {question.question_text}
-
-    Question background:
-    {question.background_info}
-
-    This question’s outcome will be determined by the following criteria (which have not yet been satisfied):
-    {question.resolution_criteria}
-    {question.fine_print}
-
-    Research briefing:
-    {research}
-
-    Today is {datetime.now().strftime("%Y-%m-%d")}.
-
-    Your task:
-    - Reason step-by-step through the question using only the information provided in the research briefing.
-    - Identify key causal mechanisms, dependencies, and constraints that would determine the outcome.
-    - Consider both pathways in which critical events occur and those in which they do not — explain how each scenario would shape the outcome.
-    - Be explicit about institutional timing, actor incentives, and structural barriers.
-    - End with a short set of bullet points summarizing your reasoning chain and the main conditional factors that would change the answer
-                           """
-
 class FallTemplateBot2025(ForecastBot):
     """
     This is a copy of the template bot for Fall 2025 Metaculus AI Tournament.
@@ -341,11 +314,40 @@ CONSTRAINTS:
             research_report = get_forecast(model_name='openai/gpt-3.5-turbo', message=research_prompt)
            
             return research_report
+        
+    def make_forecast_prompt(question, research):
+        base_forecast_prompt = f"""
+
+            You are a professional forecaster interviewing for a job.
+
+            Your interview question is:
+            {question.question_text}
+
+            Question background:
+            {question.background_info}
+
+            This question’s outcome will be determined by the following criteria (which have not yet been satisfied):
+            {question.resolution_criteria}
+            {question.fine_print}
+
+            Research briefing:
+            {research}
+
+            Today is {datetime.now().strftime("%Y-%m-%d")}.
+
+            Your task:
+            - Reason step-by-step through the question using only the information provided in the research briefing.
+            - Identify key causal mechanisms, dependencies, and constraints that would determine the outcome.
+            - Consider both pathways in which critical events occur and those in which they do not — explain how each scenario would shape the outcome.
+            - Be explicit about institutional timing, actor incentives, and structural barriers.
+            - End with a short set of bullet points summarizing your reasoning chain and the main conditional factors that would change the answer
+            """
+        return base_forecast_prompt
 
     async def _run_forecast_on_binary(
         self, question: BinaryQuestion, research: str
     ) -> ReasonedPrediction[float]:
-        prompt = clean_indents( base_forecast_prompt +
+        prompt = clean_indents(self.make_forecast_prompt(question, research) +
             f"""
             You write your rationale remembering that good forecasters put extra weight on the status quo outcome since the world changes slowly most of the time.
 
@@ -367,7 +369,7 @@ CONSTRAINTS:
     async def _run_forecast_on_multiple_choice(
         self, question: MultipleChoiceQuestion, research: str
     ) -> ReasonedPrediction[PredictedOptionList]:
-        prompt = clean_indents(base_forecast_prompt + 
+        prompt = clean_indents(self.make_forecast_prompt(question, research) + 
             f"""
             The last thing you write is your final probabilities for the N options in this order {question.options} as:
             Option_A: Probability_A
