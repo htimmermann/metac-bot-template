@@ -155,7 +155,7 @@ You are a research pre-processor for a forecasting system.
 Your only task is to collect and structure all factual, recent, and historically relevant information that a forecasting model would need to answer the question. Do not make a forecast. Do not express likelihood. Do not omit recent events if they could change the base rate. Do not add filler.
 
 The question is:
-{question}
+{question.question_text}
 
 OUTPUT MUST FOLLOW THE EXACT SECTION ORDER BELOW.
 
@@ -163,7 +163,7 @@ OUTPUT MUST FOLLOW THE EXACT SECTION ORDER BELOW.
 SECTIONS (IN THIS ORDER):
 
 QUESTION:
-Restate the question verbatim: {question};  This question's outcome will be determined by the specific criteria below: {question.resolution_criteria}, {question.fine_print}
+Restate the question verbatim: {question.question_text};  This question's outcome will be determined by the specific criteria below: {question.resolution_criteria}, {question.fine_print}
 
 QUESTION CLASSIFICATION:
 Identify the main type(s) from this list (pick 1–3):
@@ -180,7 +180,102 @@ Identify the main type(s) from this list (pick 1–3):
 - space_launch_tech (e.g. SpaceX launch failures, orbital launches)
 - sports_cultural_events (e.g. LoL Worlds, F1, NY Marathon times)
 
+SUMMARY_OF_TARGET_EVENT:
+1–4 sentences describing what the question is about, including deadline, jurisdiction, and main decision-maker(s). Include the exact deadline present in the question.
 
+RECENT_DEVELOPMENTS:
+List the most recent factual events, proposals, public statements, filings, press releases, or news reports that bear directly on the question. Include dates. Prefer the last 12–18 months. For policy questions, include: bill text introduced, committee actions, executive orders, court challenges, agency NPRMs, relevant elections. For corporate questions, include: official product announcements, regulatory pressure, EU/UK/US competition rulings, developer betas, and prior commitments. For macro/markets, include: last observed values and date stamps. Write as bullet points.
+
+INSTITUTIONAL_AND_PROCEDURAL_CONSTRAINTS:
+Describe the exact pathway by which the event in the question could occur, in that jurisdiction/organization.
+Examples:
+- US Congress: introduction → committee → chamber votes → reconciliation → president.
+- EU/UK competition/DSA/DMA: investigation → preliminary finding → compliance deadline → appeal.
+- US executive/agency: statutory authority → public health emergency criteria → precedent.
+- Corporate: regulatory pressure (e.g. UK CMA, EU DMA) → compliance window → software change shipped.
+- Geopolitics: military capability → political objective → escalation ladder → third-party mediation.
+Be concrete about which bodies must act.
+
+HISTORICAL_PRECEDENTS_AND_BASELINES:
+Provide historical examples that are structurally similar to the question.
+- For public health (e.g. “Will H5N1 get PHEIC?”): list past PHEICs, their triggers, case counts, geographic spread, and time from first detection to declaration.
+- For tariff/trade/IRA changes: list prior uses of similar authorities, successful vs failed attempts, court challenges.
+- For “Will X company do Y?” under regulatory pressure: list cases where Apple/Google/Meta changed product behavior in 1) EU, 2) UK, 3) US because of regulation.
+- For “Will Strait of Hormuz be closed?”: list past partial disruptions, naval incidents, sanctions-linked escalations.
+- For “Will UN have >193 members?”: list last admissions, criteria, current candidates.
+If there is no close precedent, state “no close precedent; closest analogues are: …”.
+
+KEY_ACTORS_AND_INCENTIVES:
+List the decision-makers and their observable incentives.
+Include:
+- governments (US Congress, White House, agencies)
+- foreign governments involved
+- companies (Apple, Google, OpenAI, Nvidia, Boeing, SpaceX, Maersk…)
+- regulators (FTC, CMA, EC, OFAC, USTR)
+- multilateral orgs (UN, NATO, WHO, IMF, EU)
+For each actor, state: role, lever of control, evidence (statement/action), and whether they can unilaterally cause the event.
+
+DATA_AND_INDICATORS:
+Provide hard data relevant to the question. Tailor by class:
+
+- macro_financial_timeseries:
+  - latest available value(s) for the instrument(s) in question (e.g. UST 10Y, ICE BofA HY OAS, VIX intraday high, S&P 500 futures, Nasdaq-100 futures, crude oil futures, gold futures) with dates.
+  - recent volatility or spread patterns.
+  - scheduled releases (CPI, payrolls, FOMC, earnings dates).
+  - known seasonal patterns if the question is month-specific (e.g. Nov-25 payrolls).
+
+- equities_earnings (e.g. “first reported EPS after Sep 2025 for TSLA/META/MSFT”):
+  - last 4 quarters’ reported EPS/revenues with dates.
+  - company’s reporting cadence and expected next report window.
+  - major company guidance or known headwinds/tailwinds.
+  - any corporate events that could affect revenue/EPS (product launches, regulatory fines, supply chain issues).
+
+- health_outbreak_pandemic:
+  - latest human and animal case counts, by country.
+  - current CDC/WHO/HHS risk assessment levels.
+  - confirmed or suspected human-to-human transmission events.
+  - vaccination/antiviral stockpiles and funding.
+  - geographic spread and biosecurity incidents.
+
+- policy_legislation_regulation / IRA_energy:
+  - current statutory text or proposed amendments (45X, 45Y, 48E etc.).
+  - compliance or domestic content deadlines.
+  - litigation or repeal attempts (identify chamber, bill name, sponsor).
+  - relevant economic or sectoral data (domestic manufacturing capacity, import dependencies).
+
+- geopolitics_conflict_sanctions:
+  - current military activity, troop presence, recent casualties.
+  - recent negotiations or peace talks (date, actors, outcome).
+  - sanctions regimes in effect and recent escalations.
+  - known trigger events for escalation (attacks on shipping, drone attacks, pipeline disruptions).
+
+STRUCTURAL_OR_LONG-RUN_FACTORS:
+Describe background factors that change slowly but affect the forecast:
+- election calendars and likely partisan control shifts
+- regulatory waves (AI safety, tech competition, export controls)
+- ongoing wars and frozen conflicts
+- climate trends relevant to weather/hurricane/temperature questions
+- AI race dynamics (frontier labs, compute bottlenecks, GPU reporting regimes)
+- IRA implementation dynamics (domestic content, adders, repeal attempts)
+
+EDGE_CASES_AND_BLOCKERS:
+List specific developments that would make the event much harder or impossible:
+- adverse court ruling
+- change in legislative majority
+- company exiting a market
+- treaty/vote requiring unanimity
+- technological infeasibility within the time window
+Also list “fast paths” (e.g. emergency authority, executive order, forced compliance via DMA/CMA).
+
+REFERENCES:
+List the sources or source types a researcher should pull from (exact agency/company/org names; add report names where relevant). Prefer:
+- US: congress.gov, whitehouse.gov, federalregister.gov, treasury.gov, commerce.gov, hhs.gov, cdc.gov
+- Multilateral: who.int, un.org, nato.int, imf.org, worldbank.org
+- Corporate: investor relations pages, SEC/EDGAR, official press rooms
+- Markets/data: Fed, BLS, BEA, EIA, ICE, CME
+Do not describe the source, just list it.
+
+============================================================
 CONSTRAINTS:
 - Do NOT make a forecast or say anything like “likely,” “unlikely,” “could,” “may,” “expected.”
 - Do NOT argue or prioritize scenarios.
